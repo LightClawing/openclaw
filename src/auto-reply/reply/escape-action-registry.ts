@@ -98,10 +98,6 @@ export class EscapeActionRegistry {
         `Action \\${name} timed out after ${config.executionTimeoutMs}ms`,
       );
 
-      if (!result) {
-        return { ok: false, error: `Action \\${name} returned no result.` };
-      }
-
       // Truncate response text if needed
       if (result.text && result.text.length > config.maxResponseLength) {
         result.text =
@@ -138,19 +134,21 @@ export function getGlobalEscapeActionRegistry(): EscapeActionRegistry {
 
 // --- Internal helpers ---
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  _timeoutMessage: string,
-): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), ms);
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, ms);
     timer.unref?.();
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) {
-      clearTimeout(timer);
-    }
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
   });
 }

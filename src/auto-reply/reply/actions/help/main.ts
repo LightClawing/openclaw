@@ -4,7 +4,7 @@ import { getGlobalEscapeActionRegistry } from "../escape-action-registry.js";
  */
 import type { ActionHandler } from "../escape-action-types.js";
 
-export const handler: ActionHandler = async () => {
+export const handler: ActionHandler = async (ctx) => {
   const registry = getGlobalEscapeActionRegistry();
   const actions = registry.list();
   if (actions.length === 0) {

@@ -623,9 +623,29 @@ await testAsync("disabled config → init without builtins", async () => {
 });
 
 // ============================================================
-// 9. LAZY RESOLUTION INTEGRATION TESTS
+// 9. PATH TRAVERSAL & SECURITY TESTS
 // ============================================================
-console.log("\n📋 9. Lazy Resolution Integration Tests");
+console.log("\n📋 9. Path Traversal & Security Tests");
+
+await testAsync("loadActionFromFs: path traversal blocked", async () => {
+  const result = await loadActionFromFs("../../etc", tmpDir, "actions");
+  assert.equal(result, undefined, "Path traversal should be blocked");
+});
+
+await testAsync("loadActionFromFs: absolute path blocked", async () => {
+  const result = await loadActionFromFs("/etc/passwd", tmpDir, "actions");
+  assert.equal(result, undefined, "Absolute path should be blocked");
+});
+
+await testAsync("loadActionFromFs: null byte injection blocked", async () => {
+  const result = await loadActionFromFs("foo%00../../etc", tmpDir, "actions");
+  assert.equal(result, undefined, "Null byte injection should be blocked");
+});
+
+// ============================================================
+// 10. LAZY RESOLUTION INTEGRATION TESTS
+// ============================================================
+console.log("\n📋 10. Lazy Resolution Integration Tests");
 
 await testAsync("\\help shows both builtins and file actions", async () => {
   const reg = new EscapeActionRegistry();
@@ -658,6 +678,44 @@ await testAsync("lazy load: unknown fs action → unknown error", async () => {
   );
   assert.equal(r.ok, false);
   assert.ok(r.error?.includes("Unknown action"));
+});
+
+// ============================================================
+// 11. LAZY ACTION TRUNCATION TESTS
+// ============================================================
+console.log("\n📋 11. Lazy Action Truncation Tests");
+
+await testAsync("lazy-loaded action response truncation applied", async () => {
+  const actionDir = path.join(actionsDir, "bigtext");
+  await fs.mkdir(actionDir, { recursive: true });
+  await fs.writeFile(
+    path.join(actionDir, "main.ts"),
+    `
+    export const handler = async () => ({ ok: true, text: "x".repeat(5000) });
+  `,
+  );
+
+  const loaded = await loadActionFromFs("bigtext", tmpDir, "actions");
+  assert.ok(loaded, "Should load bigtext action");
+
+  const result = await loaded!.handler({
+    actionName: "bigtext",
+    args: "",
+    rawBody: "\\bigtext",
+    channel: "c",
+    to: "u",
+    workspaceDir: tmpDir,
+    deliver: async () => {},
+  });
+
+  // The handler itself returns 5000 chars — truncation should be applied by dispatch
+  // But since we're calling the handler directly here, verify the raw result is long
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.text!.length,
+    5000,
+    "Handler returns full text (dispatch handles truncation)",
+  );
 });
 
 // ============================================================

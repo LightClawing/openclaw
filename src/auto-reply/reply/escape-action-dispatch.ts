@@ -172,6 +172,13 @@ export async function tryDispatchEscapeAction(params: {
           ),
         ]);
         result = handlerResult;
+
+        // Apply truncation for lazy-loaded actions (builtins handle this via registry.execute)
+        if (result.text && result.text.length > config.maxResponseLength) {
+          result.text =
+            result.text.slice(0, config.maxResponseLength) +
+            `\n\n... (truncated, max ${config.maxResponseLength} chars)`;
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         result = { ok: false, error: `Action \\${parsed.actionName} error: ${message}` };

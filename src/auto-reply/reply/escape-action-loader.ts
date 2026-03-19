@@ -17,7 +17,13 @@ export async function loadActionFromFs(
 ): Promise<
   { handler: ActionHandler; name: string; description?: string; source: string } | undefined
 > {
-  const dirPath = path.resolve(workspaceDir, actionsDir, actionName.toLowerCase());
+  const baseDir = path.resolve(workspaceDir, actionsDir);
+  const dirPath = path.resolve(baseDir, actionName.toLowerCase());
+
+  // Path traversal guard — resolved path must stay within baseDir
+  if (!dirPath.startsWith(baseDir + path.sep) && dirPath !== baseDir) {
+    return undefined;
+  }
 
   let entryFile: string | undefined;
   for (const f of ENTRY_FILES) {

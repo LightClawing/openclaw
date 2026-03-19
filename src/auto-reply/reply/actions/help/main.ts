@@ -12,7 +12,7 @@ export const handler: ActionHandler = async () => {
   }
   const lines = actions.map((a) => {
     const desc = a.description ? ` — ${a.description}` : "";
-    return `  \\${a.name}${desc}`;
+    return `  ${ctx.prefix ?? "\\"}${a.name}${desc}`;
   });
   return {
     ok: true,

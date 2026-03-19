@@ -53,7 +53,7 @@ async function doInit(cfg: OpenClawConfig): Promise<void> {
 
   const registry = getGlobalEscapeActionRegistry();
 
-  // Register builtins (idempotent — won't overwrite file-sourced actions)
+  // Register builtins first (file-sourced actions registered after will override these)
   registerBuiltinActions(registry);
 
   // Ensure the actions directory exists so users have a drop-in location
@@ -144,6 +144,7 @@ export async function tryDispatchEscapeAction(params: {
     parsed.actionName,
     {
       args: parsed.args,
+      prefix: config.prefix,
       rawBody,
       channel,
       to,

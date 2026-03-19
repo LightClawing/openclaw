@@ -27,7 +27,7 @@ export function parseEscapeAction(rawBody: string, prefix = "\\"): EscapeActionP
     const leadingWhitespace = rawBody.slice(0, rawBody.length - trimmed.length);
     return {
       isAction: false,
-      escapedBody: `${leadingWhitespace}\\${literalRest}`,
+      escapedBody: `${leadingWhitespace}${prefix}${literalRest}`,
     };
   }
 

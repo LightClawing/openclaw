@@ -3,7 +3,11 @@ import type { EscapeActionRegistry } from "./escape-action-registry.js";
 
 /**
  * Register built-in escape actions that ship with OpenClaw.
- * These are always available regardless of the workspace actions directory.
+ *
+ * These serve as fallback implementations. When file-based actions are enabled
+ * (default), the loader registers file-sourced versions AFTER builtins, so
+ * file versions take precedence via registry.register()'s overwrite behavior.
+ * This ensures actions work even without the actions/ directory.
  */
 export function registerBuiltinActions(registry: EscapeActionRegistry): void {
   registry.register({

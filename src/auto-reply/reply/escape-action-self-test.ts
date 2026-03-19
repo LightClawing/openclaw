@@ -119,8 +119,8 @@ test("looksLikeEscapeAction: true for \\status", () => {
   assert.equal(looksLikeEscapeAction("\\status"), true);
 });
 
-test("looksLikeEscapeAction: false for \\\\status", () => {
-  assert.equal(looksLikeEscapeAction("\\\\status"), false);
+test("looksLikeEscapeAction: true for \\\\status (escape sequence)", () => {
+  assert.equal(looksLikeEscapeAction("\\\\status"), true);
 });
 
 test("looksLikeEscapeAction: false for plain text", () => {

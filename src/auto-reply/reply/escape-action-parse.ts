@@ -45,15 +45,13 @@ export function parseEscapeAction(rawBody: string, prefix = "\\"): EscapeActionP
 }
 
 /**
- * Check whether a raw body looks like it could be an escape action
- * (starts with `\` and is not `\\`). This is a fast pre-check that
- * avoids full parsing when unnecessary.
+ * Check whether a raw body looks like it could be an escape action or escape
+ * sequence (starts with the prefix character). This is a fast pre-check that
+ * avoids full parsing when the message is clearly not escape-related.
+ *
+ * Both `\cmd` (action) and `\\text` (escape rewrite) should return true —
+ * dispatch handles the distinction via `parseEscapeAction()`.
  */
 export function looksLikeEscapeAction(rawBody: string, prefix = "\\"): boolean {
-  const trimmed = rawBody.trimStart();
-  if (!trimmed.startsWith(prefix)) {
-    return false;
-  }
-  // If the next char is also `\`, it's an escape, not an action
-  return !trimmed.startsWith(prefix + prefix);
+  return rawBody.trimStart().startsWith(prefix);
 }

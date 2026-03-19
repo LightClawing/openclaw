@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { DEFAULT_AGENT_WORKSPACE_DIR } from "../../agents/workspace.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
@@ -53,6 +55,14 @@ async function doInit(cfg: OpenClawConfig): Promise<void> {
 
   // Register builtins (idempotent — won't overwrite file-sourced actions)
   registerBuiltinActions(registry);
+
+  // Ensure the actions directory exists so users have a drop-in location
+  const actionsAbsPath = path.resolve(DEFAULT_AGENT_WORKSPACE_DIR, config.actionsDir);
+  try {
+    await fs.mkdir(actionsAbsPath, { recursive: true });
+  } catch {
+    // Non-critical — file watcher will handle it later
+  }
 
   // Scan workspace actions directory
   await scanAndLoadActions(registry, DEFAULT_AGENT_WORKSPACE_DIR, config.actionsDir);
@@ -133,6 +143,7 @@ export async function tryDispatchEscapeAction(params: {
   const result = await registry.execute(
     parsed.actionName,
     {
+      args: parsed.args,
       rawBody,
       channel,
       to,

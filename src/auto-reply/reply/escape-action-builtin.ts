@@ -87,10 +87,11 @@ export function registerBuiltinActions(registry: EscapeActionRegistry): void {
     description: "Echo back the provided arguments",
     source: "builtin:echo",
     handler: async (ctx) => {
-      if (!ctx.args.trim()) {
+      const text = (ctx.args ?? "").trim();
+      if (!text) {
         return { ok: true, text: "(empty)" };
       }
-      return { ok: true, text: ctx.args };
+      return { ok: true, text };
     },
   });
 

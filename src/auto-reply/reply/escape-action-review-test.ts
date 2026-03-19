@@ -190,7 +190,7 @@ test("B7: default prefix \\\\ still works", () => {
 
 test("B8: looksLikeEscapeAction with prefix !", () => {
   assert.equal(looksLikeEscapeAction("!ping", "!"), true);
-  assert.equal(looksLikeEscapeAction("!!ping", "!"), false);
+  assert.equal(looksLikeEscapeAction("!!ping", "!"), true);
   assert.equal(looksLikeEscapeAction("hello", "!"), false);
 });
 

@@ -55,16 +55,13 @@ async function doInit(cfg: OpenClawConfig): Promise<void> {
   registerBuiltinActions(registry);
 
   // Scan workspace actions directory
-  const workspaceDir =
-    resolveAgentWorkspaceDir(undefined, () => process.env.HOME ?? "/root") ??
-    DEFAULT_AGENT_WORKSPACE_DIR;
-  await scanAndLoadActions(registry, workspaceDir, config.actionsDir);
+  await scanAndLoadActions(registry, DEFAULT_AGENT_WORKSPACE_DIR, config.actionsDir);
 
   // Start file watcher for hot-reload
   if (config.watch && !watcher) {
     watcher = createActionWatcher({
       registry,
-      workspaceDir,
+      workspaceDir: DEFAULT_AGENT_WORKSPACE_DIR,
       actionsDir: config.actionsDir,
     });
     if (shouldLogVerbose()) {
@@ -141,9 +138,7 @@ export async function tryDispatchEscapeAction(params: {
       to,
       accountId: ctx.AccountId,
       sessionKey: ctx.SessionKey,
-      workspaceDir:
-        resolveAgentWorkspaceDir(undefined, () => process.env.HOME ?? "/root") ??
-        DEFAULT_AGENT_WORKSPACE_DIR,
+      workspaceDir: DEFAULT_AGENT_WORKSPACE_DIR,
       deliver: async (text) => {
         dispatcher.sendFinalReply({ text });
       },

@@ -6,8 +6,8 @@ import type { EscapeActionRegistry } from "./escape-action-registry.js";
  * Register built-in escape actions that ship with OpenClaw.
  *
  * File-based actions in `<workspace>/actions/` are resolved lazily at
- * execute time (no pre-scan, no file watcher). The `\help` command
- * scans the filesystem to show both builtins and file-based actions.
+ * execute time (no pre-scan, no file watcher). Builtins serve as fallbacks;
+ * file-based versions take precedence when present in the actions directory.
  */
 export function registerBuiltinActions(registry: EscapeActionRegistry): void {
   registry.register({

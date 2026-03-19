@@ -1,4 +1,5 @@
-import { DEFAULT_AGENT_WORKSPACE_DIR } from "../../agents/workspace.js";
+import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
+import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 import type { FinalizedMsgContext } from "../templating.js";
@@ -117,6 +118,13 @@ export async function tryDispatchEscapeAction(params: {
   const channel = String(ctx.Surface ?? ctx.Provider ?? "unknown");
   const to = ctx.To ?? ctx.From ?? "";
 
+  // Resolve the actual agent workspace directory (respects custom workspace config)
+  const agentId = resolveSessionAgentId({
+    sessionKey: ctx.SessionKey,
+    config: cfg,
+  });
+  const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+
   const actionCtx = {
     args: parsed.args,
     prefix: config.prefix,
@@ -125,7 +133,7 @@ export async function tryDispatchEscapeAction(params: {
     to,
     accountId: ctx.AccountId,
     sessionKey: ctx.SessionKey,
-    workspaceDir: DEFAULT_AGENT_WORKSPACE_DIR,
+    workspaceDir,
     actionsDir: config.actionsDir,
     deliver: async (text: string) => {
       dispatcher.sendFinalReply({ text });
@@ -138,11 +146,7 @@ export async function tryDispatchEscapeAction(params: {
     result = await registry.execute(parsed.actionName, actionCtx, config);
   } else {
     // Lazy resolution: try to load from filesystem
-    const loaded = await loadActionFromFs(
-      parsed.actionName,
-      DEFAULT_AGENT_WORKSPACE_DIR,
-      config.actionsDir,
-    );
+    const loaded = await loadActionFromFs(parsed.actionName, workspaceDir, config.actionsDir);
 
     if (!loaded) {
       result = {

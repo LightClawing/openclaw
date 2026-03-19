@@ -19,9 +19,10 @@ export function registerBuiltinActions(registry: EscapeActionRegistry): void {
       if (actions.length === 0) {
         return { ok: true, text: "No actions registered." };
       }
+      const pfx = _ctx.prefix ?? "\\";
       const lines = actions.map((a) => {
         const desc = a.description ? ` — ${a.description}` : "";
-        return `  \\${a.name}${desc}`;
+        return `  ${pfx}${a.name}${desc}`;
       });
       return {
         ok: true,

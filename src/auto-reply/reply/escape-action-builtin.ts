@@ -72,10 +72,12 @@ export function registerBuiltinActions(registry: EscapeActionRegistry): void {
     description: "Show OpenClaw version info",
     source: "builtin:version",
     handler: async () => {
-      const { version } = await import("../../version.js").catch(() => ({ version: "unknown" }));
+      const { VERSION } = await import("../../version.js").catch(() => ({
+        VERSION: "unknown" as string | null,
+      }));
       return {
         ok: true,
-        text: `OpenClaw v${version} — Node ${process.version}`,
+        text: `OpenClaw v${VERSION ?? "unknown"} — Node ${process.version}`,
       };
     },
   });

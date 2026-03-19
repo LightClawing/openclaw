@@ -1,4 +1,4 @@
-import { resolveAgentWorkspaceDir, DEFAULT_AGENT_WORKSPACE_DIR } from "../../agents/workspace.js";
+import { DEFAULT_AGENT_WORKSPACE_DIR } from "../../agents/workspace.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 /**

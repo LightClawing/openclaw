@@ -2,13 +2,22 @@
 
 ## What Are Escape Actions?
 
-Escape actions are special commands that bypass the LLM pipeline entirely. They use backslash syntax (`\command`) and execute registered handlers directly, providing instant responses without model inference.
+Escape actions are special commands that bypass the LLM pipeline entirely. They use backslash syntax (`\command`) and execute handlers directly, providing instant responses without model inference.
 
 **Syntax:**
 
 - `\actionName` — invoke an action with no arguments
 - `\actionName some arguments` — invoke with arguments
 - `\\text` — escaped literal backslash (passes `\text` through to the LLM)
+
+## How It Works
+
+File-based actions are **resolved lazily on each invocation** — no pre-scan, no file watcher, no gateway restart needed. Just drop a folder in `actions/` and it's live.
+
+Lookup order:
+
+1. **Built-in registry** — `help`, `ping`, `status`, `version`, `echo`, `time`
+2. **Filesystem** — `actions/<name>/main.{ts,mts,mjs}` (resolved on demand)
 
 ## Built-in Actions
 
@@ -44,14 +53,15 @@ Each action must export a default `handler` function matching `ActionHandler`:
 import type { ActionHandler, ActionContext, ActionResult } from "./escape-action-types";
 
 export const handler: ActionHandler = async (ctx: ActionContext): Promise<ActionResult> => {
-  // ctx.args       — the text after the command name (may be empty string)
-  // ctx.rawBody    — the original message body
-  // ctx.channel    — source channel (e.g., "telegram", "discord")
-  // ctx.to         — recipient
-  // ctx.sessionKey — current session identifier
+  // ctx.args         — the text after the command name (may be empty string)
+  // ctx.rawBody      — the original message body
+  // ctx.channel      — source channel (e.g., "telegram", "discord")
+  // ctx.to           — recipient
+  // ctx.sessionKey   — current session identifier
   // ctx.workspaceDir — workspace root directory
-  // ctx.deliver    — function to send a reply to the channel
-  // ctx.signal     — AbortSignal if the action times out
+  // ctx.actionsDir   — directory name for file-based actions
+  // ctx.deliver      — function to send a reply to the channel
+  // ctx.signal       — AbortSignal if the action times out
 
   return {
     ok: true,
@@ -75,14 +85,13 @@ The system wraps handler execution and catches unhandled errors, so throwing is 
 
 ## Hot-Deploy Behavior
 
-When file watching is enabled (default), the system automatically:
+**No watcher needed.** Actions are resolved lazily on each invocation:
 
-1. **Detects** new action directories added to `actions/`
-2. **Registers** them without requiring a gateway restart
-3. **Detects** removed action directories and unregisters them
-4. **Logs** registration/unregistration events
+- Create a new `actions/<name>/main.ts` → immediately available
+- Remove an action directory → gone on next invocation
+- Modify an action → Node.js `import()` caching may serve the old version until gateway restart (use `import(path + "?t=" + Date.now())` for dev cache-busting if needed)
 
-No restart is needed — just drop a folder in `actions/` and it's live.
+This approach works reliably in Docker bind-mount environments where `fs.watch` is known to be unreliable.
 
 ## Configuration
 
@@ -94,12 +103,13 @@ Escape actions can be configured via OpenClaw config:
     enabled: true,              // master toggle
     prefix: "\\",               // command prefix
     actionsDir: "actions",      // subdirectory name under workspace
-    watch: true,                // enable file watcher for hot-reload
     maxResponseLength: 4000,    // truncate long responses
     executionTimeoutMs: 30000,  // per-action timeout
   }
 }
 ```
+
+> **Note:** The `watch` option is deprecated and no longer used. File-based actions are resolved on demand.
 
 ## See Also
 

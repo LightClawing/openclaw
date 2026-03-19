@@ -10,9 +10,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Import modules under test
 const { parseEscapeAction, looksLikeEscapeAction } = await import("./escape-action-parse.js");
@@ -20,7 +17,7 @@ const { EscapeActionRegistry, getGlobalEscapeActionRegistry } =
   await import("./escape-action-registry.js");
 const { registerBuiltinActions } = await import("./escape-action-builtin.js");
 const { resolveEscapeActionConfig } = await import("./escape-action-config.js");
-const { scanAndLoadActions, reloadFileActions } = await import("./escape-action-loader.js");
+const { loadActionFromFs, listFileActions } = await import("./escape-action-loader.js");
 
 let passed = 0;
 let failed = 0;
@@ -70,9 +67,8 @@ test("plain text → non-action", () => {
 });
 
 test("leading space with \\\\ → escaped, not action", () => {
-  // ' \\\\hello' = space + two backslashes + hello
   const r = parseEscapeAction(" \\\\hello");
-  assert.equal(r.isAction, false); // \\hello after trimStart → escaped
+  assert.equal(r.isAction, false);
   assert.equal(r.escapedBody, " \\hello");
 });
 
@@ -243,7 +239,6 @@ await testAsync("timeout + AbortSignal propagation", async () => {
   reg.register({
     name: "slow",
     handler: async (ctx) => {
-      // Simulate a handler that checks the abort signal
       return new Promise((resolve, reject) => {
         const check = setInterval(() => {
           if (ctx.signal?.aborted) {
@@ -263,7 +258,6 @@ await testAsync("timeout + AbortSignal propagation", async () => {
   );
   assert.equal(r.ok, false);
   assert.ok(r.error?.includes("timed out"));
-  // Give a tick for the signal to propagate
   await new Promise((res) => setTimeout(res, 100));
   assert.equal(signalReceived, true, "Handler should have received abort signal");
 });
@@ -297,6 +291,18 @@ await testAsync("\\help → lists actions", async () => {
   assert.ok(r.text?.includes("Available actions"));
   assert.ok(r.text?.includes("\\ping"));
   assert.ok(r.text?.includes("\\help"));
+});
+
+await testAsync("\\help with custom prefix", async () => {
+  const reg = new EscapeActionRegistry();
+  registerBuiltinActions(reg);
+  const r = await reg.execute(
+    "help",
+    { args: "", channel: "c", to: "u", workspaceDir: "/tmp", prefix: "!", deliver: async () => {} },
+    { ...defaultConfig, prefix: "!" },
+  );
+  assert.equal(r.ok, true);
+  assert.ok(r.text?.includes("!ping"), "Should show ! prefix for builtins");
 });
 
 await testAsync("\\echo with args", async () => {
@@ -359,7 +365,6 @@ await testAsync("\\version → contains OpenClaw", async () => {
   );
   assert.equal(r.ok, true);
   assert.ok(r.text?.includes("OpenClaw"));
-  // Should NOT contain "undefined"
   assert.ok(!r.text?.includes("undefined"), "Version should not be undefined");
 });
 
@@ -386,7 +391,6 @@ test("defaults when no config", () => {
   assert.equal(c.enabled, true);
   assert.equal(c.prefix, "\\");
   assert.equal(c.actionsDir, "actions");
-  assert.equal(c.watch, true);
   assert.equal(c.maxResponseLength, 4000);
   assert.equal(c.executionTimeoutMs, 30000);
 });
@@ -397,7 +401,6 @@ test("custom config overrides", () => {
   } as any);
   assert.equal(c.enabled, false);
   assert.equal(c.executionTimeoutMs, 5000);
-  // Others should be defaults
   assert.equal(c.prefix, "\\");
   assert.equal(c.maxResponseLength, 4000);
 });
@@ -413,22 +416,21 @@ test("disabled → all actions bypassed", () => {
 });
 
 // ============================================================
-// 5. DYNAMIC LOADER TESTS (real file I/O)
+// 5. LAZY LOADER TESTS (real file I/O)
 // ============================================================
-console.log("\n📋 5. Dynamic Loader Tests");
+console.log("\n📋 5. Lazy Loader Tests");
 
 const tmpDir = path.join("/tmp", `escape-action-test-${Date.now()}`);
 const actionsDir = path.join(tmpDir, "actions");
 
-await testAsync("scan empty dir → 0 loaded", async () => {
-  await fs.mkdir(actionsDir, { recursive: true });
-  const reg = new EscapeActionRegistry();
-  const r = await scanAndLoadActions(reg, tmpDir, "actions");
-  assert.equal(r.loaded, 0);
-  assert.equal(r.errors, 0);
+await fs.mkdir(actionsDir, { recursive: true });
+
+await testAsync("loadActionFromFs: non-existent action → undefined", async () => {
+  const result = await loadActionFromFs("nonexistent", tmpDir, "actions");
+  assert.equal(result, undefined);
 });
 
-await testAsync("load custom action from file", async () => {
+await testAsync("loadActionFromFs: load custom action", async () => {
   const actionDir = path.join(actionsDir, "greet");
   await fs.mkdir(actionDir, { recursive: true });
   await fs.writeFile(
@@ -440,20 +442,25 @@ await testAsync("load custom action from file", async () => {
   `,
   );
 
-  const reg = new EscapeActionRegistry();
-  const r = await scanAndLoadActions(reg, tmpDir, "actions");
-  assert.equal(r.loaded, 1);
+  const loaded = await loadActionFromFs("greet", tmpDir, "actions");
+  assert.ok(loaded, "Should load action");
+  assert.equal(loaded!.name, "greet");
+  assert.equal(loaded!.description, "Say hello");
 
-  const result = await reg.execute(
-    "greet",
-    { args: "World", channel: "c", to: "u", workspaceDir: tmpDir, deliver: async () => {} },
-    defaultConfig,
-  );
+  const result = await loaded!.handler({
+    actionName: "greet",
+    args: "World",
+    rawBody: "\\greet World",
+    channel: "c",
+    to: "u",
+    workspaceDir: tmpDir,
+    deliver: async () => {},
+  });
   assert.equal(result.ok, true);
   assert.equal(result.text, "Hello, World!");
 });
 
-await testAsync("load action with default export", async () => {
+await testAsync("loadActionFromFs: default export", async () => {
   const actionDir = path.join(actionsDir, "defaultexp");
   await fs.mkdir(actionDir, { recursive: true });
   await fs.writeFile(
@@ -463,52 +470,44 @@ await testAsync("load action with default export", async () => {
   `,
   );
 
-  const reg = new EscapeActionRegistry();
-  const r = await scanAndLoadActions(reg, tmpDir, "actions");
-  // May include previously loaded actions from other test dirs
-  assert.ok(r.loaded >= 1, "Should load at least 1 action");
+  const loaded = await loadActionFromFs("defaultexp", tmpDir, "actions");
+  assert.ok(loaded, "Should load action with default export");
 
-  const result = await reg.execute(
-    "defaultexp",
-    { args: "", channel: "c", to: "u", workspaceDir: tmpDir, deliver: async () => {} },
-    defaultConfig,
-  );
+  const result = await loaded!.handler({
+    actionName: "defaultexp",
+    args: "",
+    rawBody: "\\defaultexp",
+    channel: "c",
+    to: "u",
+    workspaceDir: tmpDir,
+    deliver: async () => {},
+  });
   assert.equal(result.ok, true);
   assert.equal(result.text, "from default");
 });
 
-await testAsync("action without handler → error count", async () => {
+await testAsync("loadActionFromFs: action without handler → undefined", async () => {
   const actionDir = path.join(actionsDir, "nohandler");
   await fs.mkdir(actionDir, { recursive: true });
   await fs.writeFile(path.join(actionDir, "main.ts"), `export const name = "nohandler";`);
 
-  const reg = new EscapeActionRegistry();
-  const r = await scanAndLoadActions(reg, tmpDir, "actions");
-  assert.equal(r.errors, 1);
+  const loaded = await loadActionFromFs("nohandler", tmpDir, "actions");
+  assert.equal(loaded, undefined, "Should not load action without handler");
 });
 
-await testAsync("reload removes old + loads new", async () => {
-  // Remove the greet action dir
-  await fs.rm(path.join(actionsDir, "greet"), { recursive: true });
-  // Create a new one
-  const actionDir = path.join(actionsDir, "fresh");
-  await fs.mkdir(actionDir, { recursive: true });
-  await fs.writeFile(
-    path.join(actionDir, "main.ts"),
-    `
-    export const handler = async () => ({ ok: true, text: "fresh!" });
-  `,
-  );
+await testAsync("listFileActions: lists available file actions", async () => {
+  const fileActions = await listFileActions(tmpDir, "actions");
+  // Should find greet, defaultexp, nohandler (has main.ts)
+  assert.ok(fileActions.length >= 3, `Expected at least 3 file actions, got ${fileActions.length}`);
+  const names = fileActions.map((f) => f.name);
+  assert.ok(names.includes("greet"));
+  assert.ok(names.includes("defaultexp"));
+  assert.ok(names.includes("nohandler"));
+});
 
-  const reg = new EscapeActionRegistry();
-  // First load
-  await scanAndLoadActions(reg, tmpDir, "actions");
-  const countBefore = reg.size;
-
-  // Reload
-  const r = await reloadFileActions(reg, tmpDir, "actions");
-  assert.equal(r.removed, countBefore, "Should remove all previous file actions");
-  assert.equal(r.loaded, 2, "Should load 2 new actions (defaultexp + fresh)");
+await testAsync("listFileActions: nonexistent dir → empty", async () => {
+  const result = await listFileActions("/tmp", "nonexistent-dir-xyz");
+  assert.equal(result.length, 0);
 });
 
 // ============================================================
@@ -568,7 +567,7 @@ await testAsync("handler that returns nothing → ok:true with undefined text", 
 // ============================================================
 console.log("\n📋 7. Escape Body Rewrite Tests");
 
-test("\\\\hello → escapedBody is \\hello (not \\\\hello)", () => {
+test("\\\\hello → escapedBody is \\hello", () => {
   const r = parseEscapeAction("\\\\hello");
   assert.equal(r.isAction, false);
   assert.equal(r.escapedBody, "\\hello");
@@ -591,16 +590,11 @@ test("  \\\\hello → preserves leading whitespace", () => {
 // ============================================================
 console.log("\n📋 8. Init Race Condition Tests");
 
-// Import dispatch module for resetEscapeActionState
 const { ensureEscapeActionsInitialized, resetEscapeActionState } =
   await import("./escape-action-dispatch.js");
 
-await testAsync("concurrent init → only runs once", async () => {
+await testAsync("concurrent init → only runs once, no crash", async () => {
   resetEscapeActionState();
-  let initCount = 0;
-
-  // We can't easily spy on doInit, but we can verify that multiple concurrent
-  // calls to ensureEscapeActionsInitialized all resolve without error
   const cfg = {
     escapeActions: { enabled: true, actionsDir: "nonexistent-dir-for-test", watch: false },
   } as any;
@@ -611,57 +605,59 @@ await testAsync("concurrent init → only runs once", async () => {
     ensureEscapeActionsInitialized(cfg),
     ensureEscapeActionsInitialized(cfg),
   ]);
-  // All should resolve
   results.forEach((r, i) => {
     assert.equal(r, undefined, `Call ${i} should resolve`);
   });
-
-  // Second round should also resolve (already initialized)
+  // Second round should also resolve
   await ensureEscapeActionsInitialized(cfg);
-  await ensureEscapeActionsInitialized(cfg);
-  initCount++;
-
   assert.ok(true, "No race condition or crash");
   resetEscapeActionState();
 });
 
-await testAsync("disabled config → init sets initialized without scanning", async () => {
+await testAsync("disabled config → init without builtins", async () => {
   resetEscapeActionState();
   const cfg = { escapeActions: { enabled: false } } as any;
   await ensureEscapeActionsInitialized(cfg);
-  // Registry should be empty (no builtins scanned since disabled)
   assert.equal(getGlobalEscapeActionRegistry().size, 0);
   resetEscapeActionState();
 });
 
 // ============================================================
-// 9. PREFIX MATCHING (reloadFileActions exact dir)
+// 9. LAZY RESOLUTION INTEGRATION TESTS
 // ============================================================
-console.log("\n📋 9. Exact Directory Matching Tests");
+console.log("\n📋 9. Lazy Resolution Integration Tests");
 
-await testAsync("reloadFileActions does not误删 actions-extra/", async () => {
-  const extraDir = path.join(tmpDir, "actions-extra", "extra");
-  await fs.mkdir(extraDir, { recursive: true });
-  await fs.writeFile(
-    path.join(extraDir, "main.ts"),
-    `
-    export const handler = async () => ({ ok: true, text: "from-extra" });
-  `,
-  );
-
+await testAsync("\\help shows both builtins and file actions", async () => {
   const reg = new EscapeActionRegistry();
-  // Load both dirs
-  await scanAndLoadActions(reg, tmpDir, "actions");
-  await scanAndLoadActions(reg, tmpDir, "actions-extra");
+  registerBuiltinActions(reg);
+  const r = await reg.execute(
+    "help",
+    {
+      args: "",
+      channel: "c",
+      to: "u",
+      workspaceDir: tmpDir,
+      actionsDir: "actions",
+      deliver: async () => {},
+    },
+    defaultConfig,
+  );
+  assert.equal(r.ok, true);
+  assert.ok(r.text?.includes("\\ping"), "Should show builtin ping");
+  assert.ok(r.text?.includes("greet"), "Should show file-based greet action");
+  assert.ok(r.text?.includes("file-based action"), "Should label file actions");
+});
 
-  const sizeBefore = reg.size;
-  assert.ok(sizeBefore > 0, "Should have loaded actions from both dirs");
-
-  // Reload only "actions" — should NOT remove "actions-extra" actions
-  const r = await reloadFileActions(reg, tmpDir, "actions");
-  // The removed count should only match actions from the exact "actions" dir
-  // Actions from "actions-extra" should still be present
-  assert.ok(reg.size >= 1, "actions-extra actions should not be removed");
+await testAsync("lazy load: unknown fs action → unknown error", async () => {
+  const reg = new EscapeActionRegistry();
+  registerBuiltinActions(reg);
+  const r = await reg.execute(
+    "totally-unknown-action",
+    { args: "", channel: "c", to: "u", workspaceDir: tmpDir, deliver: async () => {} },
+    defaultConfig,
+  );
+  assert.equal(r.ok, false);
+  assert.ok(r.error?.includes("Unknown action"));
 });
 
 // ============================================================

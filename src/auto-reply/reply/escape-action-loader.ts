@@ -1,140 +1,106 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { logVerbose, shouldLogVerbose } from "../../globals.js";
-import type { EscapeActionRegistry } from "./escape-action-registry.js";
 import type { ActionHandler } from "./escape-action-types.js";
 
+const ENTRY_FILES = ["main.ts", "main.mts", "main.mjs"];
+
 /**
- * Scan the actions directory and dynamically load action modules.
+ * Lazily load a single action from the filesystem.
  *
- * Each action is expected at `<actionsDir>/<name>/main.ts` (or `.mts`/`.mjs`).
- * The module must export:
- *   - `name: string`       (optional, inferred from directory name)
- *   - `description: string` (optional)
- *   - `handler: ActionHandler` (required)
+ * Looks for `<workspaceDir>/<actionsDir>/<name>/main.{ts,mts,mjs}`.
+ * Returns the handler and metadata, or undefined if not found.
  */
-export async function scanAndLoadActions(
-  registry: EscapeActionRegistry,
+export async function loadActionFromFs(
+  actionName: string,
   workspaceDir: string,
   actionsDir: string,
-): Promise<{ loaded: number; errors: number }> {
-  const dirPath = path.resolve(workspaceDir, actionsDir);
-  let loaded = 0;
-  let errors = 0;
+): Promise<
+  { handler: ActionHandler; name: string; description?: string; source: string } | undefined
+> {
+  const dirPath = path.resolve(workspaceDir, actionsDir, actionName.toLowerCase());
 
-  try {
-    const stat = await fs.stat(dirPath);
-    if (!stat.isDirectory()) {
-      return { loaded: 0, errors: 0 };
-    }
-  } catch {
-    // Actions directory does not exist — that's fine
-    if (shouldLogVerbose()) {
-      logVerbose(`escape-action-loader: actions dir not found: ${dirPath}`);
-    }
-    return { loaded: 0, errors: 0 };
-  }
-
-  let entries: fs.Dirent[];
-  try {
-    entries = await fs.readdir(dirPath, { withFileTypes: true });
-  } catch {
-    return { loaded: 0, errors: 0 };
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const actionName = entry.name;
-    const actionDir = path.join(dirPath, actionName);
-
-    // Try multiple entry point extensions
-    const entryFiles = ["main.ts", "main.mts", "main.mjs"];
-    let entryFile: string | undefined;
-    for (const f of entryFiles) {
-      try {
-        const s = await fs.stat(path.join(actionDir, f));
-        if (s.isFile()) {
-          entryFile = f;
-          break;
-        }
-      } catch {
-        // not found, try next
-      }
-    }
-
-    if (!entryFile) {
-      if (shouldLogVerbose()) {
-        logVerbose(`escape-action-loader: no main entry in ${actionDir}, skipping`);
-      }
-      continue;
-    }
-
+  let entryFile: string | undefined;
+  for (const f of ENTRY_FILES) {
     try {
-      const modulePath = path.join(actionDir, entryFile);
-      // Dynamic import — uses Node.js ESM loader
-      const mod = await import(modulePath);
-
-      const handler = extractHandler(mod);
-      if (!handler) {
-        if (shouldLogVerbose()) {
-          logVerbose(`escape-action-loader: ${modulePath} has no handler export, skipping`);
-        }
-        errors++;
-        continue;
+      const s = await fs.stat(path.join(dirPath, f));
+      if (s.isFile()) {
+        entryFile = f;
+        break;
       }
-
-      const name = typeof mod.name === "string" ? mod.name : actionName;
-      const description = typeof mod.description === "string" ? mod.description : undefined;
-
-      registry.register({
-        name,
-        description,
-        handler,
-        source: modulePath,
-      });
-
-      loaded++;
-      if (shouldLogVerbose()) {
-        logVerbose(`escape-action-loader: loaded \\${name} from ${modulePath}`);
-      }
-    } catch (err) {
-      errors++;
-      if (shouldLogVerbose()) {
-        logVerbose(
-          `escape-action-loader: failed to load ${actionName}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    } catch {
+      // not found, try next
     }
   }
 
-  return { loaded, errors };
+  if (!entryFile) {
+    return undefined;
+  }
+
+  const modulePath = path.join(dirPath, entryFile);
+  try {
+    const mod = await import(modulePath);
+    const handler = extractHandler(mod);
+    if (!handler) {
+      return undefined;
+    }
+
+    return {
+      handler,
+      name: typeof mod.name === "string" ? mod.name : actionName,
+      description: typeof mod.description === "string" ? mod.description : undefined,
+      source: modulePath,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Reload all file-sourced actions (not builtins).
- * Removes actions whose source matches the workspace actions dir,
- * then re-scans.
+ * List all file-based action directories (for `\help`).
+ * Does NOT import modules — just checks for entry file existence.
  */
-export async function reloadFileActions(
-  registry: EscapeActionRegistry,
+export async function listFileActions(
   workspaceDir: string,
   actionsDir: string,
-): Promise<{ loaded: number; errors: number; removed: number }> {
-  const absDir = path.resolve(workspaceDir, actionsDir);
-  let removed = 0;
+): Promise<Array<{ name: string }>> {
+  const dirPath = path.resolve(workspaceDir, actionsDir);
+  const results: Array<{ name: string }> = [];
 
-  // Remove all actions sourced from this directory
-  for (const reg of registry.list()) {
-    if (reg.source.startsWith(absDir + path.sep)) {
-      registry.unregister(reg.name);
-      removed++;
-    }
+  try {
+    await fs.access(dirPath);
+  } catch {
+    return results;
   }
 
-  const result = await scanAndLoadActions(registry, workspaceDir, actionsDir);
-  return { ...result, removed };
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      let hasEntry = false;
+      for (const f of ENTRY_FILES) {
+        try {
+          const s = await fs.stat(path.join(dirPath, entry.name, f));
+          if (s.isFile()) {
+            hasEntry = true;
+            break;
+          }
+        } catch {
+          // not found
+        }
+      }
+
+      if (hasEntry) {
+        results.push({ name: entry.name });
+      }
+    }
+  } catch {
+    // directory listing failed — return what we have
+  }
+
+  return results;
 }
 
 function extractHandler(mod: Record<string, unknown>): ActionHandler | undefined {

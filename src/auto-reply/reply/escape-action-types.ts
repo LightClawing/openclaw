@@ -19,6 +19,8 @@ export type ActionContext = {
   sessionId?: string;
   sessionKey?: string;
   workspaceDir: string;
+  /** Directory name for file-based actions (relative to workspaceDir). */
+  actionsDir?: string;
   /** Configured command prefix (e.g. "\\" or "!"). */
   prefix?: string;
   /** Send a text reply back to the originating channel. */

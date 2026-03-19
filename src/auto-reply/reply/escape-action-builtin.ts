@@ -1,13 +1,13 @@
 import os from "node:os";
+import { listFileActions } from "./escape-action-loader.js";
 import type { EscapeActionRegistry } from "./escape-action-registry.js";
 
 /**
  * Register built-in escape actions that ship with OpenClaw.
  *
- * These serve as fallback implementations. When file-based actions are enabled
- * (default), the loader registers file-sourced versions AFTER builtins, so
- * file versions take precedence via registry.register()'s overwrite behavior.
- * This ensures actions work even without the actions/ directory.
+ * File-based actions in `<workspace>/actions/` are resolved lazily at
+ * execute time (no pre-scan, no file watcher). The `\help` command
+ * scans the filesystem to show both builtins and file-based actions.
  */
 export function registerBuiltinActions(registry: EscapeActionRegistry): void {
   registry.register({
@@ -15,19 +15,25 @@ export function registerBuiltinActions(registry: EscapeActionRegistry): void {
     description: "List all available escape actions",
     source: "builtin:help",
     handler: async (_ctx) => {
-      const actions = registry.list();
-      if (actions.length === 0) {
-        return { ok: true, text: "No actions registered." };
-      }
       const pfx = _ctx.prefix ?? "\\";
-      const lines = actions.map((a) => {
+      const lines: string[] = ["Available actions:"];
+
+      // Builtins from registry
+      for (const a of registry.list()) {
         const desc = a.description ? ` — ${a.description}` : "";
-        return `  ${pfx}${a.name}${desc}`;
-      });
-      return {
-        ok: true,
-        text: `Available actions:\n${lines.join("\n")}`,
-      };
+        lines.push(`  ${pfx}${a.name}${desc}`);
+      }
+
+      // File-based actions (lazy scan)
+      const fileActions = await listFileActions(_ctx.workspaceDir, _ctx.actionsDir ?? "actions");
+      for (const fa of fileActions) {
+        // Skip if already shown as a builtin
+        if (!registry.has(fa.name)) {
+          lines.push(`  ${pfx}${fa.name} — file-based action`);
+        }
+      }
+
+      return { ok: true, text: lines.join("\n") };
     },
   });
 

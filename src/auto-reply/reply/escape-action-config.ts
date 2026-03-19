@@ -13,6 +13,9 @@ const DEFAULT_ESCAPE_ACTION_CONFIG: EscapeActionConfig = {
 /**
  * Resolve escape action configuration from the OpenClaw config.
  * Falls back to defaults for any missing fields.
+ *
+ * Note: `watch` is deprecated and no longer used. File-based actions are
+ * resolved lazily on each invocation (no file watcher needed).
  */
 export function resolveEscapeActionConfig(cfg?: OpenClawConfig): EscapeActionConfig {
   if (!cfg) {

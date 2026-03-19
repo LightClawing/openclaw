@@ -47,6 +47,7 @@ import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { formatAbortReplyText, tryFastAbortFromMessage } from "./abort.js";
 import { shouldBypassAcpDispatchForCommand, tryDispatchAcpReply } from "./dispatch-acp.js";
+import { tryDispatchEscapeAction } from "./escape-action-dispatch.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { shouldSuppressReasoningPayload } from "./reply-payloads.js";
@@ -184,6 +185,20 @@ export async function dispatchReplyFromConfig(params: {
   if (shouldSkipDuplicateInbound(ctx)) {
     recordProcessed("skipped", { reason: "duplicate" });
     return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+  }
+
+  // Escape action fork: check for `\actionName` syntax before entering any
+  // LLM/ACP pipeline. This ensures actions work even when the model service
+  // is down.
+  const escapeActionResult = await tryDispatchEscapeAction({
+    ctx,
+    cfg,
+    dispatcher,
+    recordProcessed,
+    markIdle,
+  });
+  if (escapeActionResult) {
+    return escapeActionResult;
   }
 
   const sessionStoreEntry = resolveSessionStoreLookup(ctx, cfg);

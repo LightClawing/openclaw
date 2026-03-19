@@ -127,7 +127,7 @@ export async function reloadFileActions(
 
   // Remove all actions sourced from this directory
   for (const reg of registry.list()) {
-    if (reg.source.startsWith(absDir)) {
+    if (reg.source.startsWith(absDir + path.sep)) {
       registry.unregister(reg.name);
       removed++;
     }

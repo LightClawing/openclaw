@@ -19,19 +19,33 @@ import { createActionWatcher, type ActionWatcherHandle } from "./escape-action-w
 import type { ReplyDispatcher } from "./reply-dispatcher.js";
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 let watcher: ActionWatcherHandle | null = null;
 
 /**
  * Ensure the escape action system is initialized (builtins + file scan + watcher).
- * Safe to call multiple times — subsequent calls are no-ops.
+ * Safe to call multiple times — concurrent calls share the same init promise.
  */
 export async function ensureEscapeActionsInitialized(cfg: OpenClawConfig): Promise<void> {
   if (initialized) {
     return;
   }
+  if (initPromise) {
+    return initPromise;
+  }
 
+  initPromise = doInit(cfg);
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
+  }
+}
+
+async function doInit(cfg: OpenClawConfig): Promise<void> {
   const config = resolveEscapeActionConfig(cfg);
   if (!config.enabled) {
+    initialized = true;
     return;
   }
 
@@ -96,8 +110,21 @@ export async function tryDispatchEscapeAction(params: {
   const parsed = parseEscapeAction(rawBody, config.prefix);
 
   if (!parsed.isAction) {
-    // This was `\\` escape — rewrite body and let normal pipeline handle it
-    // For now, we don't modify the context (the `\\` is rare enough to pass through)
+    // This was `\\` escape — rewrite body so LLM sees the unescaped text
+    if (parsed.escapedBody !== undefined) {
+      if ("BodyForCommands" in ctx) {
+        ctx.BodyForCommands = parsed.escapedBody;
+      }
+      if ("CommandBody" in ctx) {
+        ctx.CommandBody = parsed.escapedBody;
+      }
+      if ("BodyForAgent" in ctx) {
+        ctx.BodyForAgent = parsed.escapedBody;
+      }
+      if ("Body" in ctx) {
+        ctx.Body = parsed.escapedBody;
+      }
+    }
     return null;
   }
 
@@ -141,6 +168,7 @@ export async function tryDispatchEscapeAction(params: {
  */
 export function resetEscapeActionState(): void {
   initialized = false;
+  initPromise = null;
   if (watcher) {
     watcher.close();
     watcher = null;

@@ -21,6 +21,8 @@ export type ActionContext = {
   workspaceDir: string;
   /** Send a text reply back to the originating channel. */
   deliver: (text: string) => Promise<void>;
+  /** Abort signal — set when the action times out. Handlers should check and respect this. */
+  signal?: AbortSignal;
 };
 
 export type ActionResult = {

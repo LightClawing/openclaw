@@ -92,8 +92,9 @@ export class EscapeActionRegistry {
     };
 
     try {
+      const controller = new AbortController();
       const result = await withTimeout(
-        action.handler(fullCtx),
+        action.handler({ ...fullCtx, signal: controller.signal }),
         config.executionTimeoutMs,
         `Action \\${name} timed out after ${config.executionTimeoutMs}ms`,
       );
@@ -135,8 +136,10 @@ export function getGlobalEscapeActionRegistry(): EscapeActionRegistry {
 // --- Internal helpers ---
 
 function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
-  return new Promise((resolve, reject) => {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      controller.abort();
       reject(new Error(timeoutMessage));
     }, ms);
     timer.unref?.();
